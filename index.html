@@ -879,10 +879,19 @@ async function fetchData() {
     const data = await res.json();
 
     // NASA TAP returns { columnNames: [...], rows: [[...],[...]] }
-    const cols = data.columnNames || data.fields?.map(f => f.name) || [];
+    // IVOA standard TAP JSON: { metadata: [{name:...}], data: [[...]] }
+    // Some services use:      { fields: [{name:...}], data: [[...]] }
+    const cols = data.columnNames
+      || data.fields?.map(f => f.name)
+      || data.metadata?.map(f => f.name)
+      || [];
     const rows = data.rows || data.data || [];
 
-    if (!cols.length || !rows.length) throw new Error('Unexpected API response shape');
+    if (!cols.length || !rows.length) {
+      console.error('Unexpected API response shape. Received keys:', Object.keys(data));
+      console.error('Response sample:', JSON.stringify(data).slice(0, 500));
+      throw new Error('Unexpected API response shape');
+    }
 
     allPlanets = rows.map(row => {
       const p = {};
