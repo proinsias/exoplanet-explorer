@@ -878,28 +878,39 @@ async function fetchData() {
 
     const data = await res.json();
 
-    // NASA TAP returns { columnNames: [...], rows: [[...],[...]] }
-    // IVOA standard TAP JSON: { metadata: [{name:...}], data: [[...]] }
-    // Some services use:      { fields: [{name:...}], data: [[...]] }
-    const cols = data.columnNames
-      || data.fields?.map(f => f.name)
-      || data.metadata?.map(f => f.name)
-      || [];
-    const rows = data.rows || data.data || [];
-
-    if (!cols.length || !rows.length) {
-      console.error('Unexpected API response shape. Received keys:', Object.keys(data));
-      console.error('Response sample:', JSON.stringify(data).slice(0, 500));
-      throw new Error('Unexpected API response shape');
+    // NASA TAP returns a flat array of objects when format=json:
+    //   [{ pl_name: "...", hostname: "...", pl_rade: 1.1, ... }, ...]
+    // Fall back to columnar formats for other TAP implementations:
+    //   { columnNames: [...], rows: [[...]] }
+    //   { metadata/fields: [{name:...}], data: [[...]] }
+    let rawPlanets;
+    if (Array.isArray(data)) {
+      rawPlanets = data;
+    } else {
+      const cols = data.columnNames
+        || data.fields?.map(f => f.name)
+        || data.metadata?.map(f => f.name)
+        || [];
+      const rows = data.rows || data.data || [];
+      if (!cols.length || !rows.length) {
+        console.error('Unexpected API response shape. Received keys:', Object.keys(data));
+        console.error('Response sample:', JSON.stringify(data).slice(0, 500));
+        throw new Error('Unexpected API response shape');
+      }
+      rawPlanets = rows.map(row => {
+        const p = {};
+        cols.forEach((c, i) => { p[c] = row[i]; });
+        return p;
+      });
     }
 
-    allPlanets = rows.map(row => {
-      const p = {};
-      cols.forEach((c, i) => { p[c] = row[i]; });
-      p.habScore = computeHabScore(p);
-      p.hzClass   = classifyHz(p);
-      return p;
-    });
+    if (!rawPlanets.length) throw new Error('No planet data returned');
+
+    allPlanets = rawPlanets.map(p => ({
+      ...p,
+      habScore: computeHabScore(p),
+      hzClass:  classifyHz(p),
+    }));
 
     showLoading(false);
     document.getElementById('main-content').style.display = 'block';
